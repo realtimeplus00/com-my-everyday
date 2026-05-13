@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>이격도 변환값 트래커</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap');
+
+:root {
+  --bg:      #07090f;
+  --bg1:     #0d1120;
+  --bg2:     #131929;
+  --bg3:     #1a2236;
+  --border:  #1f2d45;
+  --border2: #2a3d5e;
+  --text0:   #e8eeff;
+  --text1:   #8fa8cc;
+  --text2:   #4a6080;
+  --accent:  #3b82f6;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'Noto Sans KR', sans-serif;
+  --topbar-h: 36px;
+  --divider-h: 2px;
+  --savearea-h: 62px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { height:100%; }
+body {
+  background:var(--bg); color:var(--text0);
+  font-family:var(--sans);
+  display:flex; flex-direction:column; height:100dvh;
+  overflow:hidden;
+}
+
+/* ── 헤더 ── */
+#top-bar {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:8px 14px; height:var(--topbar-h); flex-shrink:0;
+}
+.app-title { font-family:var(--mono); font-size:13px; letter-spacing:3px; color:var(--text2); }
+.live-dot {
+  width:7px; height:7px; border-radius:50%; background:#22c55e;
+  box-shadow:0 0 6px #22c55e; animation:blink 2s ease-in-out infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.2} }
+
+/* ── 결과부 (위) — 정확히 50% 고정 ── */
+#result-area {
+  flex: none;
+  height: calc((100dvh - var(--topbar-h) - var(--divider-h) - var(--savearea-h)) / 2);
+  overflow-y:auto;
+  padding:10px 14px 6px;
+  display:flex; flex-direction:column; gap:6px;
+}
+#result-area::-webkit-scrollbar { width:4px; }
+#result-area::-webkit-scrollbar-track { background:transparent; }
+#result-area::-webkit-scrollbar-thumb { background:var(--border2); border-radius:2px; }
+
+.empty-msg {
+  margin:auto; text-align:center;
+  font-family:var(--mono); font-size:14px; letter-spacing:2px;
+  color:var(--text2); opacity:.6;
+  line-height:2.4;
+}
+
+/* ── 결과 카드 (컴팩트) ── */
+.res-card {
+  background:var(--bg2); border:1px solid var(--border);
+  border-radius:8px; padding:8px 10px 8px 14px;
+  display:grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items:center; gap:8px;
+  animation:fadeIn .25s ease-out;
+  position:relative; overflow:hidden;
+  min-height:56px;
+}
+.res-card::before {
+  content:''; position:absolute; left:0; top:0; bottom:0; width:3px;
+  background:var(--score-color, #3b82f6);
+}
+@keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+
+/* 왼쪽: 코인명 */
+.res-coin {
+  font-family:var(--mono); font-size:17px; font-weight:700;
+  letter-spacing:2px; padding-left:4px;
+}
+
+/* 중간: 메타 정보 */
+.res-mid {
+  display:flex; flex-direction:column; gap:1px;
+}
+.res-meta {
+  font-family:var(--mono); font-size:11px; color:var(--text1);
+  letter-spacing:1px;
+}
+.res-label {
+  font-family:var(--mono); font-size:11px; letter-spacing:1px;
+}
+
+/* 이전 종가값 + 매매판단 컬럼 */
+.res-prev-col {
+  display:flex; flex-direction:column; align-items:center;
+  gap:2px; flex-shrink:0;
+  border-left:1px solid var(--border); border-right:1px solid var(--border);
+  padding:0 10px;
+}
+.res-prev-val {
+  font-family:var(--mono); font-size:17px; font-weight:700;
+  letter-spacing:-0.5px; color:var(--text1); line-height:1;
+  white-space:nowrap;
+}
+.res-signal {
+  font-family:var(--mono); font-size:15px; font-weight:700;
+  letter-spacing:2px; line-height:1; white-space:nowrap;
+}
+
+/* 오른쪽: 현재 변환값 */
+.res-right { text-align:right; flex-shrink:0; }
+.res-score {
+  font-family:var(--mono); font-size:28px; font-weight:700;
+  line-height:1; letter-spacing:-0.5px;
+  color:var(--score-color, #3b82f6);
+  text-shadow:0 0 14px var(--score-glow, rgba(59,130,246,.4));
+  transition:color .3s, text-shadow .3s;
+  white-space:nowrap;
+}
+.res-score-sub {
+  font-family:var(--mono); font-size:10px; letter-spacing:2px;
+  color:var(--text2); margin-top:2px;
+}
+
+/* 결과 카드 번호 배지 */
+.res-num {
+  position:absolute; top:-1px; left:-1px;
+  width:20px; height:20px; border-radius:7px 0 6px 0;
+  background:var(--score-color, var(--border2)); color:#07090f;
+  font-family:var(--mono); font-size:10px; font-weight:700;
+  display:flex; align-items:center; justify-content:center;
+  letter-spacing:0; opacity:0.85;
+}
+
+/* 로딩 */
+.res-card.loading .res-score,
+.res-card.loading .res-prev-val,
+.res-card.loading .res-signal { opacity:.3; animation:pulse 1s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:.3} 50%{opacity:.7} }
+
+/* ── 구분선 ── */
+#divider {
+  height:2px;
+  background:linear-gradient(90deg,transparent,var(--border2),var(--accent),var(--border2),transparent);
+  flex-shrink:0;
+}
+
+/* ── 입력부 (아래) — 정확히 50% 고정, 스크롤 ── */
+#input-area {
+  background:var(--bg1);
+  padding:10px 14px 6px;
+  flex: none;
+  height: calc((100dvh - var(--topbar-h) - var(--divider-h) - var(--savearea-h)) / 2);
+  display:flex; flex-direction:column; gap:8px;
+  overflow-y:auto;
+}
+#input-area::-webkit-scrollbar { width:3px; }
+#input-area::-webkit-scrollbar-thumb { background:var(--border2); }
+
+/* 입력 항목 행 */
+.entry-row {
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  background:var(--bg2); border:1px solid var(--border);
+  border-radius:7px; padding:10px 12px;
+  position:relative;
+}
+
+/* 입력 번호 배지 */
+.entry-num {
+  position:absolute; top:-1px; left:-1px;
+  width:20px; height:20px; border-radius:7px 0 6px 0;
+  background:var(--border2); color:var(--text1);
+  font-family:var(--mono); font-size:10px; font-weight:700;
+  display:flex; align-items:center; justify-content:center;
+  letter-spacing:0;
+}
+
+/* 퀵버튼 행 */
+.quick-row {
+  display:flex; align-items:center; gap:5px; flex-wrap:wrap;
+  padding:2px 0 2px;
+}
+.quick-label {
+  font-family:var(--mono); font-size:11px; color:var(--text2);
+  letter-spacing:1px; flex-shrink:0;
+}
+.quick-btn {
+  padding:4px 8px; border-radius:5px; border:1px solid var(--border2);
+  background:var(--bg3); color:var(--text1); font-family:var(--mono); font-size:11px;
+  font-weight:600; cursor:pointer; transition:all .12s; letter-spacing:.5px;
+}
+.quick-btn:hover { border-color:var(--accent); color:var(--accent); background:rgba(59,130,246,.08); }
+.quick-btn:active { transform:scale(.94); }
+
+.del-btn {
+  width:30px; height:30px; border-radius:5px; border:1px solid var(--border2);
+  background:transparent; color:#ef4444; font-size:14px;
+  cursor:pointer; flex-shrink:0; transition:all .15s;
+  display:flex; align-items:center; justify-content:center;
+  font-family:var(--mono);
+}
+.del-btn:hover { background:rgba(239,68,68,.12); border-color:#ef4444; }
+
+.coin-input {
+  background:var(--bg3); border:1px solid var(--border2); border-radius:5px;
+  padding:6px 10px; font-family:var(--mono); font-size:15px; font-weight:600;
+  color:var(--text0); outline:none; width:80px; text-transform:uppercase;
+  letter-spacing:1px;
+}
+.coin-input:focus { border-color:var(--accent); }
+.coin-input::placeholder { color:var(--text2); font-weight:300; letter-spacing:0; }
+
+/* 봉 토글 */
+.tg { display:flex; border:1px solid var(--border2); border-radius:5px; overflow:hidden; }
+.tb {
+  padding:6px 10px; font-family:var(--mono); font-size:12px; letter-spacing:.5px;
+  border:none; background:transparent; color:var(--text1); cursor:pointer;
+  transition:all .12s; white-space:nowrap;
+}
+.tb.on { background:var(--accent); color:#fff; }
+.tb:hover:not(.on) { background:var(--bg3); color:var(--text0); }
+
+/* MA 선택 */
+.ma-wrap { display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
+.ma-chips { display:flex; gap:4px; flex-wrap:wrap; }
+.ma-chip {
+  padding:5px 9px; border-radius:5px; border:1px solid var(--border2);
+  background:transparent; color:var(--text1); font-family:var(--mono); font-size:12px;
+  cursor:pointer; transition:all .12s;
+}
+.ma-chip.on { background:var(--bg3); border-color:var(--accent); color:var(--accent); }
+.ma-chip:hover:not(.on) { border-color:var(--text2); color:var(--text0); }
+
+.ma-custom {
+  width:50px; background:var(--bg3); border:1px solid var(--border2); border-radius:5px;
+  padding:5px 6px; font-family:var(--mono); font-size:12px; color:var(--text0);
+  outline:none; text-align:center;
+}
+.ma-custom:focus { border-color:var(--accent); }
+.ma-custom::placeholder { color:var(--text2); }
+
+/* 추가 버튼 */
+#add-btn {
+  width:100%; padding:10px; border-radius:7px; border:1px dashed var(--border2);
+  background:transparent; color:var(--text2); font-family:var(--mono); font-size:13px;
+  letter-spacing:2px; cursor:pointer; transition:all .18s;
+}
+#add-btn:hover { border-color:var(--accent); color:var(--accent); background:rgba(59,130,246,.05); }
+
+/* 저장 버튼 */
+#save-btn {
+  width:100%; padding:12px; border-radius:7px; border:none;
+  background:linear-gradient(135deg, #1d4ed8, #3b82f6);
+  color:#fff; font-family:var(--mono); font-size:14px;
+  letter-spacing:2px; cursor:pointer; transition:all .18s;
+  font-weight:600; flex-shrink:0;
+  box-shadow: 0 2px 12px rgba(59,130,246,.3);
+}
+#save-btn:hover { background:linear-gradient(135deg,#1e40af,#2563eb); box-shadow:0 4px 18px rgba(59,130,246,.45); }
+#save-btn:active { transform:scale(.98); }
+#save-btn.saved {
+  background:linear-gradient(135deg,#065f46,#22c55e);
+  box-shadow:0 2px 12px rgba(34,197,94,.35);
+}
+
+/* 저장 버튼 감싸는 영역 */
+#save-area {
+  padding:8px 14px 10px;
+  height:var(--savearea-h);
+  background:var(--bg1);
+  flex-shrink:0;
+}
+</style>
+
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="변환값 체커">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#7c3aed">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <script>
+    if('serviceWorker' in navigator){
+      window.addEventListener('load',()=>{
+        navigator.serviceWorker.register('./service-worker.js');
+      });
+    }
+    window.addEventListener('beforeinstallprompt',e=>{
+      e.preventDefault();
+      window._pwaE=e;
+      var b=document.createElement('div');
+      b.style='position:fixed;bottom:0;left:0;right:0;background:#7c3aed;color:#fff;padding:18px;text-align:center;z-index:9999;font-size:15px;font-weight:bold;cursor:pointer;font-family:sans-serif;';
+      b.innerHTML='📲 홈화면에 앱 추가하기 · Add to Home Screen';
+      b.onclick=async function(){window._pwaE.prompt();var r=await window._pwaE.userChoice;if(r.outcome==='accepted')b.remove();};
+      document.body.appendChild(b);
+    });
+  </script>
+</head>
+<body>
+
+<div id="top-bar">
+  <span class="app-title">▸ 이격도 변환값</span>
+  <div style="display:flex;align-items:center;gap:7px">
+    <div class="live-dot"></div>
+    <span style="font-family:var(--mono);font-size:11px;color:var(--text2);letter-spacing:2px;">UPBIT LIVE</span>
+  </div>
+</div>
+
+<!-- 결과부 -->
+<div id="result-area">
+  <div class="empty-msg" id="empty-msg">
+    아래에서 코인을 추가하면<br>이격도 변환값이 여기에 표시됩니다
+  </div>
+</div>
+
+<!-- 구분선 (flex-shrink:0 → 절대 밀리지 않음) -->
+<div id="divider"></div>
+
+<!-- 입력부 -->
+<div id="input-area">
+  <button id="add-btn" onclick="addEntry()">＋ 코인 추가</button>
+</div>
+
+<!-- 저장 버튼 (항상 고정) -->
+<div id="save-area">
+  <button id="save-btn" onclick="saveAndFlash()">💾 저장</button>
+</div>
+
+<script>
+// ── 업비트 CORS 프록시 목록 ──
+const PROXIES = [
+  'https://api.allorigins.win/raw?url=',
+  'https://corsproxy.io/?',
+  'https://api.codetabs.com/v1/proxy?quest=',
+];
+let proxyIdx = 0;
+
+async function fetchUpbit(path) {
+  const url = 'https://api.upbit.com' + path;
+  try {
+    const r = await Promise.race([
+      fetch(url, { cache:'no-store' }),
+      new Promise((_,rej) => setTimeout(() => rej(new Error('timeout')), 3000))
+    ]);
+    if (r.ok) return r.json();
+  } catch(e) {}
+  for (let t=0; t<PROXIES.length; t++) {
+    const idx = (proxyIdx + t) % PROXIES.length;
+    try {
+      const r = await Promise.race([
+        fetch(PROXIES[idx] + encodeURIComponent(url), { cache:'no-store' }),
+        new Promise((_,rej) => setTimeout(() => rej(new Error('timeout')), 4000))
+      ]);
+      if (r.ok) { proxyIdx = idx; return r.json(); }
+    } catch(e) {}
+  }
+  throw new Error('API 연결 실패');
+}
+
+async function getPrice(sym) {
+  const data = await fetchUpbit(`/v1/ticker?markets=KRW-${sym}`);
+  if (!data || !data[0]) throw new Error('없는 코인');
+  return data[0].trade_price;
+}
+
+// 현재 MA: 최신 period개 캔들 평균
+async function getMA(sym, ivl, period) {
+  let path;
+  if (ivl === 'days')       path = `/v1/candles/days?market=KRW-${sym}&count=${period}`;
+  else if (ivl === 'weeks') path = `/v1/candles/weeks?market=KRW-${sym}&count=${period}`;
+  else                      path = `/v1/candles/minutes/240?market=KRW-${sym}&count=${period}`;
+  const data = await fetchUpbit(path);
+  if (!data || data.length < period) throw new Error('캔들 부족');
+  return data.reduce((s, c) => s + c.trade_price, 0) / data.length;
+}
+
+// 이전 봉 종가 + 이전 MA (period+1개 받아서 data[1] 기준 계산)
+// data[0]=현재(미완성 포함) 봉, data[1]=직전 완성봉
+async function getPrevData(sym, ivl, period) {
+  const need = period + 1;
+  let path;
+  if (ivl === 'days')       path = `/v1/candles/days?market=KRW-${sym}&count=${need}`;
+  else if (ivl === 'weeks') path = `/v1/candles/weeks?market=KRW-${sym}&count=${need}`;
+  else                      path = `/v1/candles/minutes/240?market=KRW-${sym}&count=${need}`;
+  const data = await fetchUpbit(path);
+  if (!data || data.length < need) throw new Error('캔들 부족');
+  const prevClose = data[1].trade_price;
+  const slice = data.slice(1, need); // 직전봉 포함 period개
+  const prevMA = slice.reduce((s, c) => s + c.trade_price, 0) / slice.length;
+  return { prevClose, prevMA };
+}
+
+function calcScore(price, ma) {
+  return 100 - (100 - (price / ma * 100)) * 4;
+}
+
+function scoreColor(s) {
+  if (s >= 120)  return { c:'#ef4444', g:'rgba(239,68,68,.4)',  label:'과매수' };
+  if (s >= 112)  return { c:'#f97316', g:'rgba(249,115,22,.4)', label:'매우 높음' };
+  if (s >= 104)  return { c:'#f59e0b', g:'rgba(245,158,11,.35)',label:'높음' };
+  if (s >= 98)   return { c:'#22c55e', g:'rgba(34,197,94,.35)', label:'정상' };
+  if (s >= 92)   return { c:'#06b6d4', g:'rgba(6,182,212,.35)', label:'낮음' };
+  if (s >= 84)   return { c:'#818cf8', g:'rgba(129,140,248,.4)',label:'매우 낮음' };
+  return          { c:'#a78bfa', g:'rgba(167,139,250,.45)',     label:'과매도' };
+}
+
+// ── 저장/불러오기 ──
+const STORE_KEY = 'disp_entries_v2';
+function saveEntries() {
+  const rows = [...document.querySelectorAll('.entry-row')];
+  const data = rows.map(row => ({
+    coin: row.querySelector('.coin-input').value.toUpperCase().trim(),
+    ivl:  row.dataset.ivl  || 'days',
+    ma:   row.dataset.ma   || '20',
+  })).filter(d => d.coin);
+  localStorage.setItem(STORE_KEY, JSON.stringify(data));
+}
+function loadEntries() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); }
+  catch(e) { return []; }
+}
+
+function saveAndFlash() {
+  saveEntries();
+  const btn = document.getElementById('save-btn');
+  btn.textContent = '✅ 저장 완료!';
+  btn.classList.add('saved');
+  setTimeout(() => {
+    btn.textContent = '💾 저장';
+    btn.classList.remove('saved');
+  }, 1800);
+}
+
+// ── 결과 카드 관리 ──
+
+// 입력부 번호 배지 + 결과 카드 번호 배지 일괄 갱신
+function renumberAll() {
+  const rows = [...document.querySelectorAll('.entry-row')];
+  rows.forEach((row, i) => {
+    const n = i + 1;
+    const numEl = row.querySelector('.entry-num');
+    if (numEl) numEl.textContent = n;
+    const card = document.getElementById('rc-' + row.dataset.id);
+    if (card) {
+      const rn = card.querySelector('.res-num');
+      if (rn) rn.textContent = n;
+    }
+  });
+}
+
+// 입력부 순서와 동일하게 결과 카드 순서 동기화
+function syncResultOrder() {
+  const ra = document.getElementById('result-area');
+  const rows = [...document.querySelectorAll('.entry-row')];
+  rows.forEach(row => {
+    const card = document.getElementById('rc-' + row.dataset.id);
+    if (card) ra.appendChild(card); // 순서대로 뒤로 이동 (재정렬)
+  });
+  // 번호 배지 갱신
+  rows.forEach((row, i) => {
+    const numEl = row.querySelector('.entry-num');
+    if (numEl) numEl.textContent = i + 1;
+    const card = document.getElementById('rc-' + row.dataset.id);
+    if (card) {
+      const rn = card.querySelector('.res-num');
+      if (rn) rn.textContent = i + 1;
+    }
+  });
+}
+
+function signal(prev, cur) {
+  if (prev >= 100 && cur >= 100) return { txt:'HOLD', c:'#f59e0b' };
+  if (prev >= 100 && cur <  100) return { txt:'SELL', c:'#ef4444' };
+  if (prev <  100 && cur >= 100) return { txt:'BUY',  c:'#22c55e' };
+  return                                { txt:'HOLD', c:'#06b6d4' };
+}
+
+function updateResultCard(id, coin, ivl, ma, state, score, prevScore) {
+  const ivlLabel = { days:'일봉', weeks:'주봉', '4h':'4H봉' }[ivl] || ivl;
+  const ra = document.getElementById('result-area');
+  let card = document.getElementById('rc-' + id);
+
+  const rows = [...document.querySelectorAll('.entry-row')];
+  const rowIdx = rows.findIndex(r => r.dataset.id === id);
+  const num = rowIdx >= 0 ? rowIdx + 1 : '';
+
+  if (!card) {
+    card = document.createElement('div');
+    card.className = 'res-card loading';
+    card.id = 'rc-' + id;
+    document.getElementById('empty-msg')?.remove();
+    ra.appendChild(card);
+    syncResultOrder();
+  }
+
+  if (state === 'loading') {
+    card.classList.add('loading');
+    card.innerHTML = `
+      <div class="res-num">${num}</div>
+      <div class="res-coin" style="padding-left:10px">${coin}</div>
+      <div class="res-mid">
+        <div class="res-meta">${ivlLabel} · MA${ma}</div>
+        <div class="res-label" style="color:var(--text2)">···</div>
+      </div>
+      <div class="res-prev-col">
+        <div class="res-prev-val">···</div>
+        <div class="res-signal" style="color:var(--text2)">···</div>
+      </div>
+      <div class="res-right">
+        <div class="res-score">···</div>
+        <div class="res-score-sub">변환값</div>
+      </div>`;
+    return;
+  }
+
+  if (state === 'error') {
+    card.classList.remove('loading');
+    card.style.setProperty('--score-color','#4a6080');
+    card.innerHTML = `
+      <div class="res-num">${num}</div>
+      <div class="res-coin" style="color:#4a6080;padding-left:10px">${coin}</div>
+      <div class="res-mid">
+        <div class="res-meta">${ivlLabel} · MA${ma}</div>
+        <div class="res-label" style="color:#4a6080">오류</div>
+      </div>
+      <div class="res-prev-col"><div class="res-prev-val" style="color:#4a6080">—</div></div>
+      <div class="res-right"><div class="res-score" style="color:#4a6080">—</div></div>`;
+    return;
+  }
+
+  const { c, g, label } = scoreColor(score);
+  const sig = signal(prevScore, score);
+
+  card.classList.remove('loading');
+  card.style.setProperty('--score-color', c);
+  card.style.setProperty('--score-glow', g);
+  card.innerHTML = `
+    <div class="res-num" style="background:${c}">${num}</div>
+    <div class="res-coin" style="color:${c};padding-left:10px">${coin}</div>
+    <div class="res-mid">
+      <div class="res-meta">${ivlLabel} · MA${ma}</div>
+      <div class="res-label" style="color:${c}">${label}</div>
+    </div>
+    <div class="res-prev-col">
+      <div class="res-prev-val" style="color:var(--text1)">${prevScore.toFixed(1)}</div>
+      <div class="res-signal" style="color:${sig.c};text-shadow:0 0 10px ${sig.c}88">${sig.txt}</div>
+    </div>
+    <div class="res-right">
+      <div class="res-score" style="color:${c};text-shadow:0 0 14px ${g}">${score.toFixed(1)}</div>
+      <div class="res-score-sub">변환값</div>
+    </div>`;
+}
+
+function removeResultCard(id) {
+  document.getElementById('rc-' + id)?.remove();
+  if (!document.querySelector('.res-card')) {
+    const ra = document.getElementById('result-area');
+    ra.innerHTML = '<div class="empty-msg" id="empty-msg">아래에서 코인을 추가하면<br>이격도 변환값이 여기에 표시됩니다</div>';
+  } else {
+    syncResultOrder();
+  }
+}
+
+// ── 단건 계산 ──
+async function calcEntry(row) {
+  const id   = row.dataset.id;
+  const coin = row.querySelector('.coin-input').value.toUpperCase().trim();
+  const ivl  = row.dataset.ivl  || 'days';
+  const ma   = parseInt(row.dataset.ma  || '20');
+  if (!coin) return;
+
+  updateResultCard(id, coin, ivl, ma, 'loading', 0, 0);
+  try {
+    const [price, maVal, prevData] = await Promise.all([
+      getPrice(coin),
+      getMA(coin, ivl, ma),
+      getPrevData(coin, ivl, ma)
+    ]);
+    const score     = calcScore(price, maVal);
+    const prevScore = calcScore(prevData.prevClose, prevData.prevMA);
+    updateResultCard(id, coin, ivl, ma, 'ok', score, prevScore);
+  } catch(e) {
+    updateResultCard(id, coin, ivl, ma, 'error', 0, 0);
+  }
+}
+
+async function refreshAll() {
+  const rows = [...document.querySelectorAll('.entry-row')];
+  for (const row of rows) calcEntry(row);
+}
+
+// ── 퀵버튼 코인 목록 ──
+const QUICK_COINS = ['BTC','ETH','XRP','SOL','DOGE','ADA','MATIC','XLM','AVAX','DOT','LINK','TRX'];
+
+// ── 행 만들기 ──
+let entryCounter = 0;
+function addEntry(preset) {
+  entryCounter++;
+  const id    = 'e' + entryCounter;
+  const coin  = preset?.coin || '';
+  const ivl   = preset?.ivl  || 'days';
+  const maVal = preset?.ma   || '20';
+  const MA_PRESETS = ['5','20','30','120'];
+
+  const row = document.createElement('div');
+  row.className = 'entry-row';
+  row.dataset.id  = id;
+  row.dataset.ivl = ivl;
+  row.dataset.ma  = maVal;
+
+  const quickBtnsHTML = QUICK_COINS.map(c =>
+    `<button class="quick-btn" onclick="setQuickCoin(this,'${c}')">${c}</button>`
+  ).join('');
+
+  row.innerHTML = `
+    <div class="entry-num">?</div>
+    <button class="del-btn" title="삭제" onclick="deleteEntry(this)">✕</button>
+    <input class="coin-input" placeholder="BTC" maxlength="10" value="${coin}" spellcheck="false">
+    <div class="tg">
+      <button class="tb ${ivl==='days' ?'on':''}" onclick="setIvl(this,'days')">일봉</button>
+      <button class="tb ${ivl==='weeks'?'on':''}" onclick="setIvl(this,'weeks')">주봉</button>
+      <button class="tb ${ivl==='4h'   ?'on':''}" onclick="setIvl(this,'4h')">4H</button>
+    </div>
+    <div class="ma-wrap">
+      <div class="ma-chips">
+        ${MA_PRESETS.map(p=>`<button class="ma-chip ${maVal===p?'on':''}" onclick="setMa(this,'${p}')">${p}</button>`).join('')}
+      </div>
+      <input class="ma-custom" type="number" placeholder="직접" min="2" max="200"
+        value="${MA_PRESETS.includes(maVal)?'':maVal}"
+        oninput="setMaCustom(this)">
+    </div>
+    <div class="quick-row" style="width:100%;border-top:1px solid var(--border);margin-top:4px;padding-top:8px;">
+      <span class="quick-label">빠른선택▸</span>
+      ${quickBtnsHTML}
+    </div>`;
+
+  const input = row.querySelector('.coin-input');
+  input.addEventListener('change', () => { saveEntries(); calcEntry(row); });
+  input.addEventListener('keydown', e => { if(e.key==='Enter') { saveEntries(); calcEntry(row); } });
+
+  const addBtn = document.getElementById('add-btn');
+  document.getElementById('input-area').insertBefore(row, addBtn);
+
+  // 번호 배지 갱신 (전체 재번호)
+  renumberAll();
+
+  // 새 항목 추가 시 입력부 맨 아래로 스크롤
+  setTimeout(() => {
+    const ia = document.getElementById('input-area');
+    ia.scrollTop = ia.scrollHeight;
+  }, 50);
+
+  if (coin) calcEntry(row);
+}
+
+function setQuickCoin(btn, coin) {
+  const row = btn.closest('.entry-row');
+  const input = row.querySelector('.coin-input');
+  input.value = coin;
+  saveEntries();
+  calcEntry(row);
+}
+
+function deleteEntry(btn) {
+  const row = btn.closest('.entry-row');
+  const id  = row.dataset.id;
+  removeResultCard(id);
+  row.remove();
+  renumberAll();
+  saveEntries();
+}
+
+function setIvl(btn, ivl) {
+  const row = btn.closest('.entry-row');
+  row.dataset.ivl = ivl;
+  row.querySelectorAll('.tg .tb').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  saveEntries(); calcEntry(row);
+}
+
+function setMa(btn, ma) {
+  const row = btn.closest('.entry-row');
+  row.dataset.ma = ma;
+  row.querySelectorAll('.ma-chip').forEach(b => b.classList.remove('on'));
+  btn.classList.add('on');
+  row.querySelector('.ma-custom').value = '';
+  saveEntries(); calcEntry(row);
+}
+
+function setMaCustom(input) {
+  const val = parseInt(input.value);
+  if (!val || val < 2) return;
+  const row = input.closest('.entry-row');
+  row.dataset.ma = String(val);
+  row.querySelectorAll('.ma-chip').forEach(b => b.classList.remove('on'));
+  saveEntries(); calcEntry(row);
+}
+
+// ── 초기화 ──
+(function init() {
+  const saved = loadEntries();
+  if (saved.length) {
+    saved.forEach(d => addEntry(d));
+  }
+  setInterval(refreshAll, 30000);
+})();
+</script>
+</body>
+</html>
